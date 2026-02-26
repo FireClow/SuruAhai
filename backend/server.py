@@ -294,30 +294,6 @@ def get_mitra_list(category: Optional[str] = None, is_online: Optional[bool] = N
     mitras = list(users_collection.find(query, {"password": 0}))
     return [serialize_doc(m) for m in mitras]
 
-@app.get("/api/mitra/{mitra_id}")
-def get_mitra(mitra_id: str):
-    mitra = users_collection.find_one({"_id": ObjectId(mitra_id), "role": "MITRA"}, {"password": 0})
-    if not mitra:
-        raise HTTPException(status_code=404, detail="Mitra not found")
-    return serialize_doc(mitra)
-
-@app.put("/api/mitra/profile")
-def update_mitra_profile(data: MitraProfile, user: dict = Depends(require_role(["MITRA"]))):
-    users_collection.update_one(
-        {"_id": ObjectId(user["id"])},
-        {"$set": {"mitra_profile": data.dict(), "updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    return {"message": "Mitra profile updated"}
-
-@app.put("/api/mitra/toggle-online")
-def toggle_online(user: dict = Depends(require_role(["MITRA"]))):
-    current = user.get("mitra_profile", {}).get("is_online", False)
-    users_collection.update_one(
-        {"_id": ObjectId(user["id"])},
-        {"$set": {"mitra_profile.is_online": not current}}
-    )
-    return {"is_online": not current}
-
 @app.get("/api/mitra/dashboard")
 def get_mitra_dashboard(user: dict = Depends(require_role(["MITRA"]))):
     total_orders = orders_collection.count_documents({"mitra_id": user["id"]})
