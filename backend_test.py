@@ -4,7 +4,7 @@ from datetime import datetime
 import json
 
 class SuruAhaiAPITester:
-    def __init__(self, base_url="https://63644da9-6cca-4c70-8039-f5da1d2789e7.preview.emergentagent.com"):
+    def __init__(self, base_url="http://localhost:5000"):
         self.base_url = base_url
         self.token = None
         self.admin_token = None
