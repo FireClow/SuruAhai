@@ -209,6 +209,12 @@ const LandingPage = () => {
             <p className="text-slate-600 max-w-2xl mx-auto">
               Berbagai layanan profesional untuk memenuhi kebutuhan rumah tangga Anda
             </p>
+            {/* Image Placeholder */}
+            <div className="flex justify-center mt-6">
+              <div className="w-64 h-40 bg-gray-200 flex items-center justify-center rounded-lg border border-gray-300">
+                <span className="text-gray-500">Image Placeholder</span>
+              </div>
+            </div>
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
