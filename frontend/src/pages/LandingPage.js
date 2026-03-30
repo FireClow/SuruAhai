@@ -49,6 +49,10 @@ const LandingPage = () => {
     }
   };
 
+  const handleComingSoon = (label) => {
+    toast.info(`${label} segera hadir`);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Navbar */}
@@ -374,27 +378,27 @@ const LandingPage = () => {
             <div>
               <h4 className="font-heading font-semibold text-secondary mb-4">Layanan</h4>
               <ul className="space-y-2 text-sm text-slate-500">
-                <li><a href="#" className="hover:text-primary transition-colors">Kebersihan</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">AC & Elektronik</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Pipa & Sanitasi</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Listrik</a></li>
+                <li><button type="button" onClick={() => handleComingSoon('Kebersihan')} className="hover:text-primary transition-colors">Kebersihan</button></li>
+                <li><button type="button" onClick={() => handleComingSoon('AC & Elektronik')} className="hover:text-primary transition-colors">AC & Elektronik</button></li>
+                <li><button type="button" onClick={() => handleComingSoon('Pipa & Sanitasi')} className="hover:text-primary transition-colors">Pipa & Sanitasi</button></li>
+                <li><button type="button" onClick={() => handleComingSoon('Listrik')} className="hover:text-primary transition-colors">Listrik</button></li>
               </ul>
             </div>
             <div>
               <h4 className="font-heading font-semibold text-secondary mb-4">Perusahaan</h4>
               <ul className="space-y-2 text-sm text-slate-500">
-                <li><a href="#" className="hover:text-primary transition-colors">Tentang Kami</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Karir</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Blog</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Kontak</a></li>
+                <li><button type="button" onClick={() => handleComingSoon('Tentang Kami')} className="hover:text-primary transition-colors">Tentang Kami</button></li>
+                <li><button type="button" onClick={() => handleComingSoon('Karir')} className="hover:text-primary transition-colors">Karir</button></li>
+                <li><button type="button" onClick={() => handleComingSoon('Blog')} className="hover:text-primary transition-colors">Blog</button></li>
+                <li><button type="button" onClick={() => handleComingSoon('Kontak')} className="hover:text-primary transition-colors">Kontak</button></li>
               </ul>
             </div>
             <div>
               <h4 className="font-heading font-semibold text-secondary mb-4">Legal</h4>
               <ul className="space-y-2 text-sm text-slate-500">
-                <li><a href="#" className="hover:text-primary transition-colors">Syarat & Ketentuan</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Kebijakan Privasi</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">FAQ</a></li>
+                <li><button type="button" onClick={() => handleComingSoon('Syarat & Ketentuan')} className="hover:text-primary transition-colors">Syarat & Ketentuan</button></li>
+                <li><button type="button" onClick={() => handleComingSoon('Kebijakan Privasi')} className="hover:text-primary transition-colors">Kebijakan Privasi</button></li>
+                <li><button type="button" onClick={() => handleComingSoon('FAQ')} className="hover:text-primary transition-colors">FAQ</button></li>
               </ul>
             </div>
           </div>

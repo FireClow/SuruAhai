@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Home, ShoppingBag, Wallet, Settings, LogOut, Menu, X,
-  TrendingUp, Clock, CheckCircle, Star, DollarSign, 
-  Power, ChevronRight, Calendar, MapPin, User
+  Home, ShoppingBag, Wallet, LogOut, Menu, X,
+  Clock, CheckCircle, Star, DollarSign, 
+  Power, Calendar, MapPin, User
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { getMitraDashboard, getOrders, updateOrderStatus, toggleMitraOnline, getWallet } from '../services/api';

@@ -31,7 +31,8 @@ const LoginPage = () => {
         navigate('/dashboard');
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Login gagal. Periksa email dan password Anda.');
+      const message = error?.response?.data?.message || error?.response?.data?.detail?.message || error?.response?.data?.detail || 'Login gagal. Periksa email dan password Anda.';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -98,7 +99,13 @@ const LoginPage = () => {
                 <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary" />
                 <span className="text-sm text-slate-600">Ingat saya</span>
               </label>
-              <a href="#" className="text-sm text-primary hover:underline">Lupa password?</a>
+              <button
+                type="button"
+                className="text-sm text-primary hover:underline"
+                onClick={() => toast.info('Fitur lupa password segera hadir')}
+              >
+                Lupa password?
+              </button>
             </div>
 
             <button

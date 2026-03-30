@@ -1,17 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { 
   ArrowLeft, MapPin, Calendar, Clock, CreditCard, 
   CheckCircle, Star, Shield, AlertCircle
 } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
 import { getService, getMitraList, createOrder, getWallet } from '../services/api';
 import { toast } from 'sonner';
 
 const BookingPage = () => {
   const { serviceId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -30,11 +28,7 @@ const BookingPage = () => {
 
   const [selectedMitra, setSelectedMitra] = useState(null);
 
-  useEffect(() => {
-    loadData();
-  }, [serviceId]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [serviceRes, mitrasRes, walletRes] = await Promise.all([
         getService(serviceId),
@@ -50,7 +44,11 @@ const BookingPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [serviceId, navigate]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleMitraSelect = (mitra) => {
     setSelectedMitra(mitra);

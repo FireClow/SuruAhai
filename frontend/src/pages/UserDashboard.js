@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Home, ShoppingBag, Wallet, Bell, User, LogOut, Search,
   Sparkles, Wind, Droplets, Zap, Truck, Hammer, Star, ChevronRight,
-  Clock, MapPin, Calendar, CheckCircle
+  Clock, Calendar, AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { getServices, getCategories, getOrders, getWallet, getMitraList } from '../services/api';
@@ -41,10 +41,12 @@ const UserDashboard = () => {
   const [services, setServices] = useState([]);
   const [categories, setCategories] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [wallet, setWallet] = useState({ balance: 0 });
+  const [wallet, setWallet] = useState({ balance: 0, transactions: [] });
   const [mitras, setMitras] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [walletError, setWalletError] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -53,23 +55,64 @@ const UserDashboard = () => {
 
   const loadData = async () => {
     try {
-      const [servicesRes, categoriesRes, ordersRes, walletRes, mitrasRes] = await Promise.all([
+      const [servicesRes, categoriesRes, ordersRes, mitrasRes] = await Promise.all([
         getServices(),
         getCategories(),
         getOrders(),
-        getWallet(),
         getMitraList()
       ]);
       setServices(servicesRes.data);
       setCategories(categoriesRes.data);
       setOrders(ordersRes.data);
-      setWallet(walletRes.data);
       setMitras(mitrasRes.data);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'wallet') {
+      loadWalletData();
+    }
+  }, [activeTab]);
+
+  const loadWalletData = async () => {
+    setWalletLoading(true);
+    setWalletError('');
+    try {
+      const walletRes = await getWallet();
+      const payload = walletRes.data || {};
+      setWallet({
+        balance: payload.balance || 0,
+        transactions: Array.isArray(payload.transactions) ? payload.transactions : []
+      });
+    } catch (error) {
+      setWalletError('Gagal memuat data wallet');
+    } finally {
+      setWalletLoading(false);
+    }
+  };
+
+  const formatCurrency = (amount) =>
+    new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      maximumFractionDigits: 0
+    }).format(amount || 0);
+
+  const formatDateTime = (dateValue) => {
+    if (!dateValue) return '-';
+    const parsed = new Date(dateValue);
+    if (Number.isNaN(parsed.getTime())) return '-';
+    return parsed.toLocaleString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   const handleLogout = () => {
@@ -83,7 +126,6 @@ const UserDashboard = () => {
     (!searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const recentOrders = orders.slice(0, 5);
   const pendingOrders = orders.filter(o => ['PENDING', 'CONFIRMED', 'IN_PROGRESS'].includes(o.status));
 
   if (loading) {
@@ -153,16 +195,20 @@ const UserDashboard = () => {
         {activeTab === 'home' && (
           <div className="space-y-8 animate-fade-in">
             {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari layanan..."
-                className="input pl-12"
-                data-testid="search-input"
-              />
+            <div>
+              <label htmlFor="service-search" className="sr-only">Cari layanan</label>
+              <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition-all focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+                <Search className="h-5 w-5 flex-shrink-0 text-slate-400" />
+                <input
+                  id="service-search"
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Cari layanan..."
+                  className="w-full border-0 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+                  data-testid="search-input"
+                />
+              </div>
             </div>
 
             {/* Categories */}
@@ -350,31 +396,68 @@ const UserDashboard = () => {
         {activeTab === 'wallet' && (
           <div className="space-y-6 animate-fade-in">
             <div className="card p-6 bg-gradient-to-br from-primary to-[#FF9E2C] text-white">
-              <p className="text-white/80 mb-2">Saldo Wallet</p>
-              <p className="font-heading text-4xl font-bold">
-                Rp {wallet.balance?.toLocaleString('id-ID') || '0'}
-              </p>
-              <p className="text-white/60 text-sm mt-2">
-                Saldo dari refund atau kredit
-              </p>
+              <p className="mb-2 text-white/80">Saldo Wallet</p>
+              <p className="font-heading text-4xl font-bold">{formatCurrency(wallet.balance)}</p>
+              <p className="mt-2 text-sm text-white/70">Ringkasan saldo aktif Anda</p>
             </div>
 
             <div className="card p-6">
-              <h3 className="font-heading font-semibold text-secondary mb-4">Tentang Wallet</h3>
-              <div className="space-y-3 text-sm text-slate-600">
-                <div className="flex items-start gap-3">
-                  <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
-                  <p>Saldo wallet bisa digunakan untuk pembayaran pesanan</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
-                  <p>Refund dari pembatalan otomatis masuk ke wallet</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
-                  <p>Sistem escrow menjamin keamanan transaksi</p>
-                </div>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="font-heading font-semibold text-secondary">Riwayat Transaksi</h3>
+                <button type="button" onClick={loadWalletData} className="text-sm text-primary hover:underline">
+                  Muat Ulang
+                </button>
               </div>
+
+              {walletLoading && (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((item) => (
+                    <div key={item} className="h-16 animate-pulse rounded-xl bg-slate-100" />
+                  ))}
+                </div>
+              )}
+
+              {!walletLoading && walletError && (
+                <div className="rounded-xl border border-red-100 bg-red-50 p-4 text-red-600">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="mt-0.5 h-5 w-5" />
+                    <p>{walletError}</p>
+                  </div>
+                </div>
+              )}
+
+              {!walletLoading && !walletError && wallet.transactions.length === 0 && (
+                <div className="empty-state">
+                  <Wallet className="mx-auto mb-3 h-12 w-12 text-slate-300" />
+                  <p className="text-slate-500">Belum ada transaksi</p>
+                </div>
+              )}
+
+              {!walletLoading && !walletError && wallet.transactions.length > 0 && (
+                <div className="space-y-3">
+                  {wallet.transactions.map((tx, index) => {
+                    const isCredit = tx.type === 'credit';
+                    return (
+                      <div key={`${tx.created_at || 'tx'}-${index}`} className="rounded-xl border border-slate-100 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-secondary">{tx.description || 'Transaksi wallet'}</p>
+                            <p className="mt-1 text-xs text-slate-500">{formatDateTime(tx.created_at)}</p>
+                          </div>
+                          <div className="text-right">
+                            <span className={`badge ${isCredit ? 'badge-success' : 'badge-error'}`}>
+                              {isCredit ? 'Kredit' : 'Debit'}
+                            </span>
+                            <p className={`mt-2 font-heading font-bold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+                              {isCredit ? '+' : '-'} {formatCurrency(Math.abs(tx.amount || 0))}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}

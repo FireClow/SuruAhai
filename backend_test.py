@@ -2,9 +2,10 @@ import requests
 import sys
 from datetime import datetime
 import json
+import os
 
 class SuruAhaiAPITester:
-    def __init__(self, base_url="http://localhost:5000"):
+    def __init__(self, base_url="http://127.0.0.1:8001"):
         self.base_url = base_url
         self.token = None
         self.admin_token = None
@@ -167,8 +168,9 @@ class SuruAhaiAPITester:
 def main():
     print("🚀 Starting SuruAhai API Tests")
     print("=" * 50)
-    
-    tester = SuruAhaiAPITester()
+
+    api_base_url = os.environ.get("API_BASE_URL", "http://127.0.0.1:8001")
+    tester = SuruAhaiAPITester(base_url=api_base_url)
     
     # Basic API tests
     tester.test_health_check()

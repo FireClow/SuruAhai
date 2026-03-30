@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
@@ -9,11 +10,13 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pymongo import MongoClient
 from bson import ObjectId
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = FastAPI(title="SuruAhai API", version="1.0.0")
+logger = logging.getLogger("suruahai.api")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,6 +40,7 @@ wallets_collection = db["wallets"]
 escrow_collection = db["escrow"]
 reviews_collection = db["reviews"]
 notifications_collection = db["notifications"]
+wallet_transactions_collection = db["wallet_transactions"]
 
 # JWT Config
 JWT_SECRET = os.environ.get("JWT_SECRET", "secret")
@@ -130,6 +134,16 @@ def serialize_doc(doc):
     doc["id"] = str(doc.pop("_id"))
     return doc
 
+def record_wallet_transaction(user_id: str, amount: float, tx_type: str, description: str, order_id: Optional[str] = None):
+    wallet_transactions_collection.insert_one({
+        "user_id": user_id,
+        "amount": amount,
+        "type": tx_type,
+        "description": description,
+        "order_id": order_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
         token = credentials.credentials
@@ -160,7 +174,20 @@ def health():
 @app.post("/api/auth/register")
 def register(data: UserRegister):
     if users_collection.find_one({"email": data.email}):
-        raise HTTPException(status_code=400, detail="Email already registered")
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": "Email sudah terdaftar"}
+        )
+
+    logger.info(
+        "Register request received",
+        extra={
+            "email": data.email,
+            "role": data.role,
+            "phone": data.phone,
+            "name": data.name,
+        }
+    )
     
     user_data = {
         "email": data.email,
@@ -197,35 +224,56 @@ def register(data: UserRegister):
     
     token = create_token({"sub": str(result.inserted_id), "role": user_data["role"]})
     
+    response_user = {
+        "id": str(result.inserted_id),
+        "email": data.email,
+        "name": data.name,
+        "role": user_data["role"]
+    }
+
     return {
+        "success": True,
+        "message": "Registrasi berhasil",
+        "data": {
+            "token": token,
+            "user": response_user,
+        },
+        # Keep backward compatibility for existing frontend/test callers.
         "token": token,
-        "user": {
-            "id": str(result.inserted_id),
-            "email": data.email,
-            "name": data.name,
-            "role": user_data["role"]
-        }
+        "user": response_user,
     }
 
 @app.post("/api/auth/login")
 def login(data: UserLogin):
     user = users_collection.find_one({"email": data.email})
     if not user or not verify_password(data.password, user["password"]):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        return JSONResponse(
+            status_code=401,
+            content={"success": False, "message": "Email atau password tidak valid"}
+        )
     
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account suspended")
     
     token = create_token({"sub": str(user["_id"]), "role": user["role"]})
     
+    response_user = {
+        "id": str(user["_id"]),
+        "email": user["email"],
+        "name": user["name"],
+        "role": user["role"]
+    }
+
     return {
+        "success": True,
+        "message": "Login berhasil",
+        "data": {
+            "token": token,
+            "user": response_user,
+        },
+        # Keep backward compatibility for existing frontend/test callers.
         "token": token,
-        "user": {
-            "id": str(user["_id"]),
-            "email": user["email"],
-            "name": user["name"],
-            "role": user["role"]
-        }
+        "user": response_user,
     }
 
 @app.get("/api/auth/me")
@@ -242,9 +290,20 @@ def update_profile(data: UserUpdate, user: dict = Depends(get_current_user)):
     return {"message": "Profile updated"}
 
 @app.get("/api/user/wallet")
+@app.get("/api/wallet")
+@app.get("/wallet")
 def get_wallet(user: dict = Depends(get_current_user)):
-    wallet = wallets_collection.find_one({"user_id": user["id"]}, {"_id": 0})
-    return wallet or {"balance": 0}
+    wallet = wallets_collection.find_one({"user_id": user["id"]}, {"_id": 0}) or {"balance": 0}
+    transactions = list(
+        wallet_transactions_collection
+        .find({"user_id": user["id"]}, {"_id": 0})
+        .sort("created_at", -1)
+        .limit(50)
+    )
+    return {
+        "balance": wallet.get("balance", 0),
+        "transactions": transactions,
+    }
 
 # Services endpoints
 @app.get("/api/services")
@@ -442,6 +501,13 @@ def update_order_status(order_id: str, status: str, user: dict = Depends(get_cur
                 {"user_id": order["mitra_id"]},
                 {"$inc": {"balance": escrow["amount"] * 0.85}}
             )
+            record_wallet_transaction(
+                user_id=order["mitra_id"],
+                amount=escrow["amount"] * 0.85,
+                tx_type="credit",
+                description="Pencairan escrow pesanan selesai",
+                order_id=order_id,
+            )
     elif status == "CANCELLED":
         # Refund to user wallet
         escrow = escrow_collection.find_one({"order_id": order_id})
@@ -453,6 +519,13 @@ def update_order_status(order_id: str, status: str, user: dict = Depends(get_cur
             wallets_collection.update_one(
                 {"user_id": order["user_id"]},
                 {"$inc": {"balance": escrow["amount"]}}
+            )
+            record_wallet_transaction(
+                user_id=order["user_id"],
+                amount=escrow["amount"],
+                tx_type="credit",
+                description="Refund pesanan dibatalkan",
+                order_id=order_id,
             )
     
     return {"message": f"Order status updated to {status}"}

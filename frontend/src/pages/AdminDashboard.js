@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Home, Users, Briefcase, DollarSign, AlertTriangle, Settings, LogOut,
-  Menu, X, TrendingUp, ShoppingBag, Wallet, CheckCircle, XCircle,
-  Search, MoreVertical, Shield, Ban, Eye
+  Home, Users, Briefcase, DollarSign, AlertTriangle, LogOut,
+  Menu, X, TrendingUp, ShoppingBag, Wallet, CheckCircle,
+  Search, Shield, Ban
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { 

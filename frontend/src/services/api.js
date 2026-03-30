@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://127.0.0.1:8001';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -50,7 +50,7 @@ export const getMitraReviews = (mitraId) => api.get(`/api/reviews/mitra/${mitraI
 
 // User
 export const updateProfile = (data) => api.put('/api/user/profile', data);
-export const getWallet = () => api.get('/api/user/wallet');
+export const getWallet = () => api.get('/api/wallet');
 export const getNotifications = () => api.get('/api/notifications');
 
 // Admin
