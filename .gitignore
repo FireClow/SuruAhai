@@ -18,3 +18,8 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Accidental venv layout under backend/ (Windows)
+backend/Lib/
+backend/Scripts/
+backend/pyvenv.cfg

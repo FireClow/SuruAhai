@@ -544,21 +544,21 @@ const AdminDashboard = () => {
               <h1 className="font-heading text-2xl font-bold text-secondary">Keuangan</h1>
 
               <div className="grid sm:grid-cols-3 gap-4">
-                <div className="card p-6 bg-gradient-to-br from-primary to-[#FF9E2C] text-white">
+                <div className="rounded-2xl border border-white/20 p-6 shadow-card bg-gradient-to-br from-primary to-[#FF9E2C] text-white">
                   <p className="text-white/80 mb-2">Total GMV</p>
                   <p className="font-heading text-3xl font-bold">
                     Rp {(dashboard.total_gmv || 0).toLocaleString('id-ID')}
                   </p>
                 </div>
 
-                <div className="card p-6 bg-gradient-to-br from-green-500 to-green-600 text-white">
+                <div className="rounded-2xl border border-white/20 p-6 shadow-card bg-gradient-to-br from-green-500 to-green-600 text-white">
                   <p className="text-white/80 mb-2">Revenue (15%)</p>
                   <p className="font-heading text-3xl font-bold">
                     Rp {(dashboard.commission_revenue || 0).toLocaleString('id-ID')}
                   </p>
                 </div>
 
-                <div className="card p-6 bg-gradient-to-br from-secondary to-secondary-800 text-white">
+                <div className="rounded-2xl border border-white/15 p-6 shadow-card bg-gradient-to-br from-secondary to-secondary-800 text-white">
                   <p className="text-white/80 mb-2">Escrow Balance</p>
                   <p className="font-heading text-3xl font-bold">
                     Rp {(dashboard.escrow_balance || 0).toLocaleString('id-ID')}

@@ -125,13 +125,6 @@ const LoginPage = () => {
             </Link>
           </p>
 
-          {/* Demo accounts */}
-          <div className="mt-8 p-4 bg-slate-50 rounded-xl">
-            <p className="text-xs text-slate-500 mb-2 font-medium">Demo Accounts:</p>
-            <div className="space-y-1 text-xs text-slate-600">
-              <p><span className="font-medium">Admin:</span> admin@suruahai.com / admin123</p>
-            </div>
-          </div>
         </div>
       </div>
 

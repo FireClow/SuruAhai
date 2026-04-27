@@ -463,7 +463,7 @@ const MitraDashboard = () => {
             <div className="space-y-6 animate-fade-in">
               <h1 className="font-heading text-2xl font-bold text-secondary">Pendapatan</h1>
 
-              <div className="card p-6 bg-gradient-to-br from-primary to-[#FF9E2C] text-white">
+              <div className="rounded-2xl border border-white/20 p-6 shadow-card bg-gradient-to-br from-primary to-[#FF9E2C] text-white">
                 <p className="text-white/80 mb-2">Total Pendapatan</p>
                 <p className="font-heading text-4xl font-bold">
                   Rp {(dashboard.total_earnings || 0).toLocaleString('id-ID')}
@@ -501,7 +501,7 @@ const MitraDashboard = () => {
             <div className="space-y-6 animate-fade-in">
               <h1 className="font-heading text-2xl font-bold text-secondary">Wallet</h1>
 
-              <div className="card p-6 bg-gradient-to-br from-secondary to-secondary-800 text-white">
+              <div className="rounded-2xl border border-white/15 p-6 shadow-card bg-gradient-to-br from-secondary to-secondary-800 text-white">
                 <p className="text-white/80 mb-2">Saldo Tersedia</p>
                 <p className="font-heading text-4xl font-bold">
                   Rp {(wallet.balance || 0).toLocaleString('id-ID')}

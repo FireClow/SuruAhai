@@ -395,7 +395,7 @@ const UserDashboard = () => {
         {/* Wallet Tab */}
         {activeTab === 'wallet' && (
           <div className="space-y-6 animate-fade-in">
-            <div className="card p-6 bg-gradient-to-br from-primary to-[#FF9E2C] text-white">
+            <div className="rounded-2xl border border-white/20 p-6 shadow-card bg-gradient-to-br from-primary to-[#FF9E2C] text-white">
               <p className="mb-2 text-white/80">Saldo Wallet</p>
               <p className="font-heading text-4xl font-bold">{formatCurrency(wallet.balance)}</p>
               <p className="mt-2 text-sm text-white/70">Ringkasan saldo aktif Anda</p>
