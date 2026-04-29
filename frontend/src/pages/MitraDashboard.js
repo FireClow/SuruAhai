@@ -3,16 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Home, ShoppingBag, Wallet, LogOut, Menu, X,
   Clock, CheckCircle, Star, DollarSign, 
-  Power, Calendar, MapPin, User
+  Power, Calendar, MapPin, User, Tags
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { getMitraDashboard, getOrders, updateOrderStatus, toggleMitraOnline, getWallet } from '../services/api';
+import { getMitraDashboard, getOrders, updateOrderStatus, toggleMitraOnline, getWallet, getCategories, updateMitraProfile, requestMitraWithdraw } from '../services/api';
 import { toast } from 'sonner';
 
 const statusColors = {
   PENDING: 'badge-warning',
   CONFIRMED: 'badge-info',
   IN_PROGRESS: 'badge-info',
+  AWAITING_USER_CONFIRMATION: 'badge-warning',
   COMPLETED: 'badge-success',
   CANCELLED: 'badge-error'
 };
@@ -21,12 +22,13 @@ const statusLabels = {
   PENDING: 'Menunggu',
   CONFIRMED: 'Dikonfirmasi',
   IN_PROGRESS: 'Dikerjakan',
+  AWAITING_USER_CONFIRMATION: 'Menunggu konfirmasi pengguna',
   COMPLETED: 'Selesai',
   CANCELLED: 'Dibatalkan'
 };
 
 const MitraDashboard = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -35,10 +37,37 @@ const MitraDashboard = () => {
   const [wallet, setWallet] = useState({ balance: 0 });
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [profileServices, setProfileServices] = useState([]);
+  const [profileDescription, setProfileDescription] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawBankName, setWithdrawBankName] = useState('');
+  const [withdrawBankAccount, setWithdrawBankAccount] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawSubmitting, setWithdrawSubmitting] = useState(false);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await getCategories();
+        setCategories(res.data);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!user?.mitra_profile) return;
+    const mp = user.mitra_profile;
+    setProfileServices(Array.isArray(mp.services) ? [...mp.services] : []);
+    setProfileDescription(mp.description || '');
+  }, [user]);
 
   const loadData = async () => {
     try {
@@ -71,10 +100,11 @@ const MitraDashboard = () => {
   const handleStatusUpdate = async (orderId, status) => {
     try {
       await updateOrderStatus(orderId, status);
-      toast.success(`Status diperbarui ke ${statusLabels[status]}`);
+      toast.success(`Status diperbarui ke ${statusLabels[status] ?? status}`);
       loadData();
     } catch (error) {
-      toast.error('Gagal memperbarui status');
+      const detail = error.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Gagal memperbarui status');
     }
   };
 
@@ -84,13 +114,102 @@ const MitraDashboard = () => {
     toast.success('Logout berhasil');
   };
 
+  const toggleProfileService = (categoryId) => {
+    setProfileServices((prev) =>
+      prev.includes(categoryId)
+        ? prev.filter((id) => id !== categoryId)
+        : [...prev, categoryId]
+    );
+  };
+
+  const handleSaveProfile = async () => {
+    if (profileServices.length === 0) {
+      toast.error('Pilih minimal satu kategori keahlian');
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      const mp = user?.mitra_profile || {};
+      await updateMitraProfile({
+        services: profileServices,
+        description: profileDescription.trim() || null,
+        bank_name: mp.bank_name ?? null,
+        bank_account: mp.bank_account ?? null,
+        is_verified: mp.is_verified ?? false,
+        is_online: mp.is_online ?? false
+      });
+      await refreshUser();
+      toast.success('Profil keahlian disimpan');
+    } catch (error) {
+      toast.error('Gagal menyimpan profil');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const MIN_WITHDRAW = 50000;
+  const balanceNum = Number(wallet.balance || 0);
+
+  const openWithdrawModal = () => {
+    const mp = user?.mitra_profile || {};
+    setWithdrawBankName(mp.bank_name || '');
+    setWithdrawBankAccount(mp.bank_account || '');
+    setWithdrawAmount(balanceNum >= MIN_WITHDRAW ? String(Math.floor(balanceNum)) : '');
+    setWithdrawOpen(true);
+  };
+
+  const handleWithdrawSubmit = async (e) => {
+    e.preventDefault();
+    const amount = parseFloat(String(withdrawAmount), 10);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Masukkan jumlah penarikan yang valid');
+      return;
+    }
+    if (!withdrawBankName.trim() || !withdrawBankAccount.trim()) {
+      toast.error('Lengkapi nama bank dan nomor rekening');
+      return;
+    }
+    if (amount < MIN_WITHDRAW) {
+      toast.error(`Minimal penarikan Rp ${MIN_WITHDRAW.toLocaleString('id-ID')}`);
+      return;
+    }
+    if (amount > balanceNum) {
+      toast.error('Jumlah melebihi saldo');
+      return;
+    }
+    setWithdrawSubmitting(true);
+    try {
+      await requestMitraWithdraw({
+        amount,
+        bank_name: withdrawBankName.trim(),
+        bank_account: withdrawBankAccount.trim()
+      });
+      toast.success('Penarikan berhasil. Dana akan diproses 1–3 hari kerja.');
+      setWithdrawOpen(false);
+      await Promise.all([loadData(), refreshUser()]);
+    } catch (err) {
+      const raw = err.response?.data?.detail;
+      const msg = Array.isArray(raw)
+        ? raw.map((e) => e.msg || e).join(', ')
+        : typeof raw === 'string'
+          ? raw
+          : raw?.message;
+      toast.error(msg || 'Gagal memproses penarikan');
+    } finally {
+      setWithdrawSubmitting(false);
+    }
+  };
+
   const pendingOrders = orders.filter(o => o.status === 'PENDING');
-  const activeOrders = orders.filter(o => ['CONFIRMED', 'IN_PROGRESS'].includes(o.status));
+  const activeOrders = orders.filter(o =>
+    ['CONFIRMED', 'IN_PROGRESS', 'AWAITING_USER_CONFIRMATION'].includes(o.status)
+  );
 
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: Home },
     { id: 'orders', label: 'Pesanan', icon: ShoppingBag, badge: pendingOrders.length },
     { id: 'earnings', label: 'Pendapatan', icon: DollarSign },
+    { id: 'skills', label: 'Keahlian', icon: Tags },
     { id: 'wallet', label: 'Wallet', icon: Wallet }
   ];
 
@@ -232,6 +351,23 @@ const MitraDashboard = () => {
               <h1 className="font-heading text-2xl font-bold text-secondary">
                 Selamat datang, {user?.name}!
               </h1>
+
+              {(!user?.mitra_profile?.services || user.mitra_profile.services.length === 0) && (
+                <div className="card p-4 bg-amber-50 border-amber-100">
+                  <p className="text-sm text-amber-900 font-medium">Lengkapi keahlian Anda</p>
+                  <p className="text-sm text-amber-800/90 mt-1">
+                    Pilih kategori jasa di tab <span className="font-medium">Keahlian</span> agar Anda muncul saat pelanggan booking.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('skills')}
+                    className="mt-3 text-sm font-medium text-amber-900 underline"
+                    data-testid="overview-go-skills"
+                  >
+                    Buka pengaturan keahlian
+                  </button>
+                </div>
+              )}
 
               {/* Stats Grid */}
               <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -428,11 +564,13 @@ const MitraDashboard = () => {
                           )}
                           {order.status === 'IN_PROGRESS' && (
                             <button
-                              onClick={() => handleStatusUpdate(order.id, 'COMPLETED')}
+                              onClick={() =>
+                                handleStatusUpdate(order.id, 'AWAITING_USER_CONFIRMATION')
+                              }
                               className="btn-primary py-2 px-4 text-sm"
                               data-testid={`complete-${order.id}`}
                             >
-                              Selesaikan
+                              Tandai selesai
                             </button>
                           )}
                           <button
@@ -455,6 +593,67 @@ const MitraDashboard = () => {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Keahlian / profil jasa */}
+          {activeTab === 'skills' && (
+            <div className="space-y-6 animate-fade-in">
+              <div>
+                <h1 className="font-heading text-2xl font-bold text-secondary">Keahlian & profil</h1>
+                <p className="text-sm text-slate-500 mt-1">
+                  Tentukan jenis jasa yang Anda layani. Pelanggan hanya dapat memilih Anda untuk booking pada kategori yang dicentang.
+                </p>
+              </div>
+
+              <div className="card p-6 space-y-3">
+                <h2 className="font-heading font-semibold text-secondary text-sm">Kategori jasa</h2>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {categories.map((cat) => (
+                    <label
+                      key={cat.id}
+                      className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${
+                        profileServices.includes(cat.id)
+                          ? 'border-primary bg-primary/5'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-1 rounded border-slate-300 text-primary focus:ring-primary"
+                        checked={profileServices.includes(cat.id)}
+                        onChange={() => toggleProfileService(cat.id)}
+                        data-testid={`skill-cat-${cat.id}`}
+                      />
+                      <div>
+                        <p className="font-medium text-secondary text-sm">{cat.name}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{cat.description}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="card p-6 space-y-4">
+                <h2 className="font-heading font-semibold text-secondary text-sm">Deskripsi singkat</h2>
+                <textarea
+                  value={profileDescription}
+                  onChange={(e) => setProfileDescription(e.target.value)}
+                  className="input min-h-[100px] resize-none"
+                  placeholder="Ceritakan pengalaman atau spesialisasi Anda..."
+                  data-testid="mitra-profile-description"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={profileSaving}
+                className="btn-primary w-full sm:w-auto disabled:opacity-50"
+                data-testid="save-mitra-profile"
+              >
+                {profileSaving ? 'Menyimpan…' : 'Simpan perubahan'}
+              </button>
             </div>
           )}
 
@@ -512,8 +711,10 @@ const MitraDashboard = () => {
               </div>
 
               <button 
+                type="button"
                 className="btn-primary w-full"
-                disabled={!wallet.balance}
+                disabled={balanceNum < MIN_WITHDRAW}
+                onClick={openWithdrawModal}
                 data-testid="withdraw-btn"
               >
                 Tarik Dana
@@ -534,7 +735,7 @@ const MitraDashboard = () => {
                   </div>
                   <div className="flex items-start gap-3">
                     <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
-                    <p>Dana masuk ke rekening terdaftar</p>
+                    <p>Data rekening tujuan diisi saat Anda mengajukan penarikan</p>
                   </div>
                 </div>
               </div>
@@ -542,6 +743,108 @@ const MitraDashboard = () => {
           )}
         </div>
       </main>
+
+      {withdrawOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-4 sm:p-6"
+          onClick={() => !withdrawSubmitting && setWithdrawOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="withdraw-title"
+          >
+            <form onSubmit={handleWithdrawSubmit} className="p-6 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 id="withdraw-title" className="font-heading text-lg font-bold text-secondary">
+                    Tarik dana
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Saldo tersedia: Rp {balanceNum.toLocaleString('id-ID')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+                  onClick={() => !withdrawSubmitting && setWithdrawOpen(false)}
+                  aria-label="Tutup"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Jumlah (Rp)</label>
+                <input
+                  type="number"
+                  min={MIN_WITHDRAW}
+                  max={balanceNum}
+                  step="1000"
+                  value={withdrawAmount}
+                  onChange={(e) => setWithdrawAmount(e.target.value)}
+                  className="input"
+                  required
+                  data-testid="withdraw-amount"
+                />
+                <p className="text-xs text-slate-400 mt-1">Minimal Rp {MIN_WITHDRAW.toLocaleString('id-ID')}</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Nama bank</label>
+                <input
+                  type="text"
+                  value={withdrawBankName}
+                  onChange={(e) => setWithdrawBankName(e.target.value)}
+                  className="input"
+                  placeholder="Contoh: BCA"
+                  required
+                  data-testid="withdraw-bank-name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Nomor rekening</label>
+                <input
+                  type="text"
+                  value={withdrawBankAccount}
+                  onChange={(e) => setWithdrawBankAccount(e.target.value)}
+                  className="input"
+                  placeholder="Nomor rekening penerima"
+                  required
+                  data-testid="withdraw-bank-account"
+                />
+              </div>
+
+              <p className="text-xs text-slate-500">
+                Data rekening akan disimpan di profil Anda untuk pengajuan berikutnya dan dapat diubah setiap kali tarik dana.
+              </p>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  className="btn-secondary flex-1"
+                  disabled={withdrawSubmitting}
+                  onClick={() => setWithdrawOpen(false)}
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary flex-1 disabled:opacity-50"
+                  disabled={withdrawSubmitting}
+                  data-testid="withdraw-submit"
+                >
+                  {withdrawSubmitting ? 'Memproses…' : 'Ajukan penarikan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 lg:hidden pb-safe z-40">

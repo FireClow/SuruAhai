@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Home, ShoppingBag, Wallet, Bell, User, LogOut, Search,
   Sparkles, Wind, Droplets, Zap, Truck, Hammer, Star, ChevronRight,
-  Clock, Calendar, AlertCircle
+  Clock, Calendar, AlertCircle, PlusCircle
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { getServices, getCategories, getOrders, getWallet, getMitraList } from '../services/api';
+import { getServices, getCategories, getOrders, getWallet, getMitraList, getNotifications } from '../services/api';
 import { toast } from 'sonner';
+import WalletTopUpModal from '../components/WalletTopUpModal';
 
 const categoryIcons = {
   cleaning: Sparkles,
@@ -22,6 +23,7 @@ const statusColors = {
   PENDING: 'badge-warning',
   CONFIRMED: 'badge-info',
   IN_PROGRESS: 'badge-info',
+  AWAITING_USER_CONFIRMATION: 'badge-warning',
   COMPLETED: 'badge-success',
   CANCELLED: 'badge-error'
 };
@@ -30,6 +32,7 @@ const statusLabels = {
   PENDING: 'Menunggu',
   CONFIRMED: 'Dikonfirmasi',
   IN_PROGRESS: 'Sedang Dikerjakan',
+  AWAITING_USER_CONFIRMATION: 'Perlu konfirmasi Anda',
   COMPLETED: 'Selesai',
   CANCELLED: 'Dibatalkan'
 };
@@ -48,6 +51,8 @@ const UserDashboard = () => {
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState([]);
+  const [topupModalOpen, setTopupModalOpen] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -55,16 +60,18 @@ const UserDashboard = () => {
 
   const loadData = async () => {
     try {
-      const [servicesRes, categoriesRes, ordersRes, mitrasRes] = await Promise.all([
+      const [servicesRes, categoriesRes, ordersRes, mitrasRes, notifRes] = await Promise.all([
         getServices(),
         getCategories(),
         getOrders(),
-        getMitraList()
+        getMitraList(),
+        getNotifications().catch(() => ({ data: [] }))
       ]);
       setServices(servicesRes.data);
       setCategories(categoriesRes.data);
       setOrders(ordersRes.data);
       setMitras(mitrasRes.data);
+      setNotifications(Array.isArray(notifRes.data) ? notifRes.data : []);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -94,6 +101,8 @@ const UserDashboard = () => {
       setWalletLoading(false);
     }
   };
+
+  const openTopUpModal = () => setTopupModalOpen(true);
 
   const formatCurrency = (amount) =>
     new Intl.NumberFormat('id-ID', {
@@ -126,7 +135,7 @@ const UserDashboard = () => {
     (!searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const pendingOrders = orders.filter(o => ['PENDING', 'CONFIRMED', 'IN_PROGRESS'].includes(o.status));
+  const notificationBadgeCount = notifications.filter((n) => n.read !== true).length;
 
   if (loading) {
     return (
@@ -170,11 +179,17 @@ const UserDashboard = () => {
             </div>
 
             <div className="flex items-center gap-3">
-              <button className="relative p-2 rounded-lg hover:bg-slate-100 transition-colors" data-testid="notifications-btn">
+              <button
+                type="button"
+                onClick={() => navigate('/notifications')}
+                className="relative p-2 rounded-lg hover:bg-slate-100 transition-colors"
+                aria-label="Notifikasi"
+                data-testid="notifications-btn"
+              >
                 <Bell className="w-5 h-5 text-slate-600" />
-                {pendingOrders.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-xs rounded-full flex items-center justify-center">
-                    {pendingOrders.length}
+                {notificationBadgeCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 bg-primary text-white text-xs rounded-full flex items-center justify-center">
+                    {notificationBadgeCount > 9 ? '9+' : notificationBadgeCount}
                   </span>
                 )}
               </button>
@@ -395,10 +410,21 @@ const UserDashboard = () => {
         {/* Wallet Tab */}
         {activeTab === 'wallet' && (
           <div className="space-y-6 animate-fade-in">
-            <div className="rounded-2xl border border-white/20 p-6 shadow-card bg-gradient-to-br from-primary to-[#FF9E2C] text-white">
-              <p className="mb-2 text-white/80">Saldo Wallet</p>
-              <p className="font-heading text-4xl font-bold">{formatCurrency(wallet.balance)}</p>
-              <p className="mt-2 text-sm text-white/70">Ringkasan saldo aktif Anda</p>
+            <div className="rounded-2xl border border-white/20 p-6 shadow-card bg-gradient-to-br from-primary to-[#FF9E2C] text-white flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="mb-2 text-white/80">Saldo Wallet</p>
+                <p className="font-heading text-4xl font-bold">{formatCurrency(wallet.balance)}</p>
+                <p className="mt-2 text-sm text-white/70">Ringkasan saldo aktif Anda</p>
+              </div>
+              <button
+                type="button"
+                onClick={openTopUpModal}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-white/80 bg-white/15 px-5 py-3 font-medium text-white backdrop-blur-sm transition hover:bg-white/25"
+                data-testid="wallet-topup-open"
+              >
+                <PlusCircle className="h-5 w-5" />
+                Top up
+              </button>
             </div>
 
             <div className="card p-6">
@@ -462,6 +488,12 @@ const UserDashboard = () => {
           </div>
         )}
       </div>
+
+      <WalletTopUpModal
+        open={topupModalOpen}
+        onClose={() => setTopupModalOpen(false)}
+        onSuccess={loadWalletData}
+      />
 
       {/* Mobile Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 md:hidden pb-safe z-50">

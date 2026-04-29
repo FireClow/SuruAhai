@@ -650,7 +650,7 @@ const AdminDashboard = () => {
                             <span className={`badge ${
                               order.status === 'COMPLETED' ? 'badge-success' :
                               order.status === 'CANCELLED' ? 'badge-error' :
-                              order.status === 'PENDING' ? 'badge-warning' :
+                              order.status === 'PENDING' || order.status === 'AWAITING_USER_CONFIRMATION' ? 'badge-warning' :
                               'badge-info'
                             }`}>
                               {order.status}

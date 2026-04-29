@@ -30,6 +30,14 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token, logout]);
 
+  const refreshUser = useCallback(async () => {
+    if (!token) return;
+    const response = await axios.get(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    setUser(response.data);
+  }, [token]);
+
   useEffect(() => {
     if (token) {
       fetchUser();
@@ -82,6 +90,7 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    refreshUser,
     isAuthenticated: !!user
   };
 

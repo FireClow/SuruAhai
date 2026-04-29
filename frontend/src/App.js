@@ -13,6 +13,7 @@ import MitraDashboard from './pages/MitraDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import BookingPage from './pages/BookingPage';
 import OrderDetailPage from './pages/OrderDetailPage';
+import NotificationsPage from './pages/NotificationsPage';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -96,6 +97,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <OrderDetailPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/notifications" 
+        element={
+          <ProtectedRoute allowedRoles={['USER']}>
+            <NotificationsPage />
           </ProtectedRoute>
         } 
       />

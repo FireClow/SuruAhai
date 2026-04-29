@@ -37,6 +37,7 @@ export const getMitra = (id) => api.get(`/api/mitra/${id}`);
 export const updateMitraProfile = (data) => api.put('/api/mitra/profile', data);
 export const toggleMitraOnline = () => api.put('/api/mitra/toggle-online');
 export const getMitraDashboard = () => api.get('/api/mitra/dashboard');
+export const requestMitraWithdraw = (data) => api.post('/api/wallet/withdraw', data);
 
 // Orders
 export const createOrder = (data) => api.post('/api/orders', data);
@@ -51,6 +52,7 @@ export const getMitraReviews = (mitraId) => api.get(`/api/reviews/mitra/${mitraI
 // User
 export const updateProfile = (data) => api.put('/api/user/profile', data);
 export const getWallet = () => api.get('/api/wallet');
+export const walletTopUp = (data) => api.post('/api/wallet/topup', data);
 export const getNotifications = () => api.get('/api/notifications');
 
 // Admin

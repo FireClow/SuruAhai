@@ -1,11 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { 
-  ArrowLeft, MapPin, Calendar, Clock, CreditCard, 
+  ArrowLeft, MapPin, Calendar, Clock, Wallet,
   CheckCircle, Star, Shield, AlertCircle
 } from 'lucide-react';
 import { getService, getMitraList, createOrder, getWallet } from '../services/api';
 import { toast } from 'sonner';
+import WalletTopUpModal from '../components/WalletTopUpModal';
+
+const formatCurrencyIDR = (amount) =>
+  new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0
+  }).format(amount || 0);
 
 const BookingPage = () => {
   const { serviceId } = useParams();
@@ -22,21 +30,22 @@ const BookingPage = () => {
     scheduled_date: '',
     scheduled_time: '',
     address: '',
-    notes: '',
-    use_wallet: false
+    notes: ''
   });
 
   const [selectedMitra, setSelectedMitra] = useState(null);
+  const [insufficientModalOpen, setInsufficientModalOpen] = useState(false);
+  const [topupModalOpen, setTopupModalOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      const [serviceRes, mitrasRes, walletRes] = await Promise.all([
-        getService(serviceId),
-        getMitraList(),
+      const serviceRes = await getService(serviceId);
+      const [mitrasRes, walletRes] = await Promise.all([
+        getMitraList({ category: serviceRes.data.category, is_online: true }),
         getWallet()
       ]);
       setService(serviceRes.data);
-      setMitras(mitrasRes.data.filter(m => m.mitra_profile?.is_online));
+      setMitras(mitrasRes.data);
       setWallet(walletRes.data);
     } catch (error) {
       toast.error('Gagal memuat data layanan');
@@ -50,6 +59,22 @@ const BookingPage = () => {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (step !== 3 || !service) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const w = await getWallet();
+        if (!cancelled && w?.data) setWallet(w.data);
+      } catch {
+        //
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, service]);
+
   const handleMitraSelect = (mitra) => {
     setSelectedMitra(mitra);
     setBookingData({ ...bookingData, mitra_id: mitra.id });
@@ -62,8 +87,18 @@ const BookingPage = () => {
       return;
     }
 
+    const price = Number(service?.price ?? 0);
     setSubmitting(true);
     try {
+      const walletRes = await getWallet();
+      const bal = Number(walletRes.data?.balance ?? 0);
+      setWallet(walletRes.data || { balance: 0 });
+
+      if (bal < price) {
+        setInsufficientModalOpen(true);
+        return;
+      }
+
       const response = await createOrder({
         service_id: serviceId,
         mitra_id: bookingData.mitra_id,
@@ -72,14 +107,28 @@ const BookingPage = () => {
         address: bookingData.address,
         notes: bookingData.notes
       });
-      
+
       toast.success('Pesanan berhasil dibuat!');
       navigate(`/orders/${response.data.id}`);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Gagal membuat pesanan');
+      const detail = error.response?.data?.detail;
+      const msg = typeof detail === 'string' ? detail : 'Gagal membuat pesanan';
+      toast.error(msg);
+      if (
+        typeof detail === 'string' &&
+        (detail.toLowerCase().includes('tidak mencukupi') ||
+          detail.toLowerCase().includes('top up'))
+      ) {
+        setInsufficientModalOpen(true);
+      }
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const refreshWalletAfterTopUp = async () => {
+    const w = await getWallet();
+    setWallet(w.data || { balance: 0 });
   };
 
   const getMinDate = () => {
@@ -95,6 +144,10 @@ const BookingPage = () => {
       </div>
     );
   }
+
+  const balanceNum = Number(wallet?.balance ?? 0);
+  const totalPrice = Number(service?.price ?? 0);
+  const shortfall = Math.max(0, totalPrice - balanceNum);
 
   return (
     <div className="min-h-screen bg-background">
@@ -202,8 +255,10 @@ const BookingPage = () => {
             ) : (
               <div className="empty-state card">
                 <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <p className="text-slate-500">Belum ada mitra tersedia</p>
-                <p className="text-sm text-slate-400 mt-1">Silakan coba lagi nanti</p>
+                <p className="text-slate-500">Belum ada mitra online untuk kategori ini</p>
+                <p className="text-sm text-slate-400 mt-1">
+                  Coba waktu lain, atau pilih layanan lain. Mitra perlu mengaktifkan keahlian yang sesuai di dashboard mereka.
+                </p>
               </div>
             )}
           </div>
@@ -351,46 +406,48 @@ const BookingPage = () => {
 
               <hr className="border-slate-100" />
 
-              <div className="flex justify-between items-center">
-                <span className="font-medium text-secondary">Total Pembayaran</span>
+              <div className="flex justify-between items-center pt-1">
+                <span className="font-medium text-secondary">Total pembayaran</span>
                 <span className="font-heading text-xl font-bold text-primary">
                   Rp {service?.price?.toLocaleString('id-ID')}
                 </span>
               </div>
             </div>
 
-            {/* Wallet Option */}
-            {wallet.balance > 0 && (
-              <div className="card p-4">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={bookingData.use_wallet}
-                    onChange={(e) => setBookingData({ ...bookingData, use_wallet: e.target.checked })}
-                    className="w-5 h-5 rounded border-slate-300 text-primary focus:ring-primary"
-                  />
-                  <div>
-                    <p className="font-medium text-secondary">Gunakan saldo wallet</p>
-                    <p className="text-sm text-slate-500">
-                      Saldo tersedia: Rp {wallet.balance.toLocaleString('id-ID')}
-                    </p>
-                  </div>
-                </label>
-              </div>
-            )}
-
-            {/* Payment Info */}
+            {/* Payment note */}
             <div className="card p-4 bg-blue-50 border-blue-100">
               <div className="flex items-start gap-3">
-                <CreditCard className="w-5 h-5 text-blue-500 mt-0.5" />
+                <Wallet className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
                 <div>
-                  <p className="font-medium text-blue-700">Pembayaran Mock (Demo)</p>
-                  <p className="text-sm text-blue-600 mt-1">
-                    Ini adalah simulasi pembayaran. Dana akan masuk ke escrow dan dirilis setelah pekerjaan selesai.
+                  <p className="font-medium text-blue-800">Bayar pakai saldo wallet</p>
+                  <p className="text-sm text-blue-700 mt-1">
+                    Saat konfirmasi, total layanan langsung dibebankan dari saldo Anda. Dana di-hold sebagai escrow sampai pesanan selesai atau Anda membatalkan (saat tunggu konfirmasi mitra).
                   </p>
                 </div>
               </div>
             </div>
+
+            {/* Saldo terpisah — pola checkout super-app */}
+            <div className="card flex items-center justify-between gap-3 p-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                  <Wallet className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-medium text-secondary">Saldo wallet</p>
+                  <p className="text-xs text-slate-500">Saldo tersedia</p>
+                </div>
+              </div>
+              <span className="shrink-0 font-heading text-lg font-semibold text-secondary">
+                {formatCurrencyIDR(balanceNum)}
+              </span>
+            </div>
+
+            {shortfall > 0 && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Saldo Anda kurang {formatCurrencyIDR(shortfall)} untuk melanjutkan. Silakan top up terlebih dahulu.
+              </p>
+            )}
 
             <button
               onClick={handleSubmit}
@@ -403,6 +460,63 @@ const BookingPage = () => {
           </div>
         )}
       </div>
+
+      {insufficientModalOpen && (
+        <div
+          className="fixed inset-0 z-[55] flex items-end justify-center p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="insufficient-wallet-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Tutup"
+            disabled={submitting}
+            onClick={() => !submitting && setInsufficientModalOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-100 bg-white p-6 shadow-xl">
+            <h2 id="insufficient-wallet-title" className="font-heading font-semibold text-lg text-secondary">
+              Saldo tidak mencukupi
+            </h2>
+            <p className="mt-3 text-sm text-slate-600">
+              Untuk pesanan ini diperlukan {formatCurrencyIDR(totalPrice)}. Saldo Anda{' '}
+              {formatCurrencyIDR(balanceNum)}, sehingga Anda masih kurang{' '}
+              <span className="font-semibold text-secondary">
+                {formatCurrencyIDR(Math.max(0, totalPrice - balanceNum))}
+              </span>
+              . Silakan top up terlebih dahulu.
+            </p>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="rounded-xl px-4 py-2.5 font-medium text-slate-600 hover:bg-slate-50 sm:order-1"
+                disabled={submitting}
+                onClick={() => setInsufficientModalOpen(false)}
+              >
+                Kembali
+              </button>
+              <button
+                type="button"
+                className="btn-primary px-5 py-2.5 sm:order-2"
+                disabled={submitting}
+                onClick={() => {
+                  setInsufficientModalOpen(false);
+                  setTopupModalOpen(true);
+                }}
+              >
+                Top up
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <WalletTopUpModal
+        open={topupModalOpen}
+        onClose={() => setTopupModalOpen(false)}
+        onSuccess={refreshWalletAfterTopUp}
+      />
     </div>
   );
 };

@@ -6,7 +6,7 @@ import {
   Menu, X, ArrowRight
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { getCategories, seedData } from '../services/api';
+import { getCategories } from '../services/api';
 import { toast } from 'sonner';
 
 const categoryIcons = {
@@ -30,8 +30,6 @@ const LandingPage = () => {
 
   const loadData = async () => {
     try {
-      // Seed data first
-      await seedData();
       const response = await getCategories();
       setCategories(response.data);
     } catch (error) {

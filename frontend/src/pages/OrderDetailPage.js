@@ -12,9 +12,12 @@ const statusConfig = {
   PENDING: { color: 'warning', label: 'Menunggu Konfirmasi', step: 1 },
   CONFIRMED: { color: 'info', label: 'Dikonfirmasi', step: 2 },
   IN_PROGRESS: { color: 'info', label: 'Sedang Dikerjakan', step: 3 },
-  COMPLETED: { color: 'success', label: 'Selesai', step: 4 },
+  AWAITING_USER_CONFIRMATION: { color: 'warning', label: 'Menunggu Konfirmasi Anda', step: 4 },
+  COMPLETED: { color: 'success', label: 'Selesai', step: 5 },
   CANCELLED: { color: 'error', label: 'Dibatalkan', step: 0 }
 };
+
+const timelineLabels = ['Menunggu', 'Dikonfirmasi', 'Dikerjakan', 'Konfirmasi', 'Selesai'];
 
 const OrderDetailPage = () => {
   const { orderId } = useParams();
@@ -48,14 +51,27 @@ const OrderDetailPage = () => {
     loadOrder();
   }, [loadOrder]);
 
-  const handleStatusUpdate = async (status) => {
+  const handleStatusUpdate = async (nextStatus) => {
     try {
-      await updateOrderStatus(orderId, status);
-      toast.success(`Status pesanan diperbarui ke ${statusConfig[status].label}`);
+      await updateOrderStatus(orderId, nextStatus);
+      const label = statusConfig[nextStatus]?.label ?? nextStatus;
+      toast.success(`Status pesanan diperbarui ke ${label}`);
       loadOrder();
     } catch (error) {
-      toast.error('Gagal memperbarui status');
+      const detail = error.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Gagal memperbarui status');
     }
+  };
+
+  const handleUserConfirmCompleted = () => {
+    if (
+      !window.confirm(
+        'Pastikan pekerjaan sudah sesuai. Dana escrow akan dicairkan ke mitra. Lanjutkan?'
+      )
+    ) {
+      return;
+    }
+    handleStatusUpdate('COMPLETED');
   };
 
   const handleReviewSubmit = async () => {
@@ -97,7 +113,11 @@ const OrderDetailPage = () => {
     );
   }
 
-  const status = statusConfig[order.status];
+  const status = statusConfig[order.status] || {
+    color: 'info',
+    label: order.status,
+    step: 0
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -151,6 +171,10 @@ const OrderDetailPage = () => {
                 {order.status === 'PENDING' && 'Menunggu konfirmasi dari mitra'}
                 {order.status === 'CONFIRMED' && 'Mitra akan datang sesuai jadwal'}
                 {order.status === 'IN_PROGRESS' && 'Pekerjaan sedang berlangsung'}
+                {order.status === 'AWAITING_USER_CONFIRMATION' &&
+                  (user?.role === 'USER'
+                    ? 'Mitra menandai pekerjaan selesai — konfirmasi untuk melepas pembayaran'
+                    : 'Menunggu pelanggan mengonfirmasi sebelum dana dicairkan')}
                 {order.status === 'COMPLETED' && 'Pekerjaan telah selesai'}
                 {order.status === 'CANCELLED' && 'Pesanan telah dibatalkan'}
               </p>
@@ -163,7 +187,7 @@ const OrderDetailPage = () => {
           <div className="card p-6">
             <h3 className="font-heading font-semibold text-secondary mb-4">Status Pesanan</h3>
             <div className="status-timeline">
-              {['Menunggu', 'Dikonfirmasi', 'Dikerjakan', 'Selesai'].map((label, index) => {
+              {timelineLabels.map((label, index) => {
                 const stepNum = index + 1;
                 const isCompleted = status.step >= stepNum;
                 const isActive = status.step === stepNum;
@@ -268,7 +292,9 @@ const OrderDetailPage = () => {
           </div>
           <div className="mt-3 p-3 bg-green-50 rounded-lg">
             <p className="text-sm text-green-700">
-              ✓ Dana disimpan di escrow - aman hingga pekerjaan selesai
+              {order.status === 'AWAITING_USER_CONFIRMATION'
+                ? '✓ Dana masih di escrow hingga Anda mengonfirmasi pekerjaan selesai'
+                : '✓ Dana disimpan di escrow - aman hingga pekerjaan selesai dan Anda mengonfirmasi'}
             </p>
           </div>
         </div>
@@ -285,6 +311,15 @@ const OrderDetailPage = () => {
                   data-testid="review-btn"
                 >
                   Beri Ulasan
+                </button>
+              )}
+              {order.status === 'AWAITING_USER_CONFIRMATION' && (
+                <button
+                  onClick={handleUserConfirmCompleted}
+                  className="btn-primary w-full"
+                  data-testid="user-confirm-complete-btn"
+                >
+                  Konfirmasi pekerjaan selesai
                 </button>
               )}
               {order.status === 'PENDING' && (
@@ -331,11 +366,11 @@ const OrderDetailPage = () => {
               )}
               {order.status === 'IN_PROGRESS' && (
                 <button
-                  onClick={() => handleStatusUpdate('COMPLETED')}
+                  onClick={() => handleStatusUpdate('AWAITING_USER_CONFIRMATION')}
                   className="btn-primary w-full"
                   data-testid="complete-btn"
                 >
-                  Selesaikan Pesanan
+                  Tandai selesai (tunggu konfirmasi pengguna)
                 </button>
               )}
             </>

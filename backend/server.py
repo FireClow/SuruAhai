@@ -11,6 +11,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 import os
 import logging
+import threading
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -42,6 +43,8 @@ reviews_collection = db["reviews"]
 notifications_collection = db["notifications"]
 wallet_transactions_collection = db["wallet_transactions"]
 
+_seed_lock = threading.Lock()
+
 # JWT Config
 JWT_SECRET = os.environ.get("JWT_SECRET", "secret")
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
@@ -61,6 +64,7 @@ class OrderStatus:
     PENDING = "PENDING"
     CONFIRMED = "CONFIRMED"
     IN_PROGRESS = "IN_PROGRESS"
+    AWAITING_USER_CONFIRMATION = "AWAITING_USER_CONFIRMATION"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
 
@@ -114,6 +118,19 @@ class ReviewCreate(BaseModel):
     order_id: str
     rating: int = Field(ge=1, le=5)
     comment: Optional[str] = None
+
+class MitraWithdraw(BaseModel):
+    amount: float = Field(gt=0)
+    bank_name: str = Field(min_length=1)
+    bank_account: str = Field(min_length=1)
+
+MIN_MITRA_WITHDRAW = 50000.0
+MIN_USER_TOPUP = 10000.0
+MAX_USER_TOPUP = 50_000_000.0
+
+
+class WalletTopUp(BaseModel):
+    amount: float = Field(ge=MIN_USER_TOPUP, le=MAX_USER_TOPUP, description="Nominal top-up (IDR)")
 
 # Helper functions
 def hash_password(password: str) -> str:
@@ -305,6 +322,72 @@ def get_wallet(user: dict = Depends(get_current_user)):
         "transactions": transactions,
     }
 
+
+@app.post("/api/wallet/topup")
+def wallet_topup(data: WalletTopUp, user: dict = Depends(require_role(["USER"]))):
+    amount = float(data.amount)
+
+    wallets_collection.update_one(
+        {"user_id": user["id"]},
+        {
+            "$inc": {"balance": amount},
+            "$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat()},
+        },
+        upsert=True,
+    )
+    record_wallet_transaction(
+        user_id=user["id"],
+        amount=amount,
+        tx_type="credit",
+        description="Top up saldo",
+    )
+    wallet = wallets_collection.find_one({"user_id": user["id"]})
+    new_balance = float((wallet or {}).get("balance", 0) or 0)
+    return {"message": "Top up berhasil", "balance": new_balance, "amount": amount}
+
+
+def _execute_mitra_withdraw(data: MitraWithdraw, user: dict):
+    if data.amount < MIN_MITRA_WITHDRAW:
+        raise HTTPException(status_code=400, detail="Minimal penarikan Rp 50.000")
+    wallet = wallets_collection.find_one({"user_id": user["id"]})
+    balance = float((wallet or {}).get("balance", 0) or 0)
+    if data.amount > balance:
+        raise HTTPException(status_code=400, detail="Saldo tidak mencukupi")
+
+    bank_name = data.bank_name.strip()
+    bank_account = data.bank_account.strip()
+    current_profile = user.get("mitra_profile") or {}
+    merged_profile = {**current_profile, "bank_name": bank_name, "bank_account": bank_account}
+    merged_profile["is_verified"] = current_profile.get("is_verified", False)
+
+    wallets_collection.update_one(
+        {"user_id": user["id"]},
+        {"$inc": {"balance": -data.amount}},
+    )
+    record_wallet_transaction(
+        user_id=user["id"],
+        amount=data.amount,
+        tx_type="debit",
+        description=f"Penarikan ke {bank_name} • {bank_account}",
+    )
+    users_collection.update_one(
+        {"_id": ObjectId(user["id"])},
+        {
+            "$set": {
+                "mitra_profile": merged_profile,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    )
+    new_balance = balance - data.amount
+    return {"message": "Penarikan berhasil", "balance": new_balance}
+
+
+@app.post("/api/wallet/withdraw")
+def wallet_withdraw_mitra(data: MitraWithdraw, user: dict = Depends(require_role(["MITRA"]))):
+    return _execute_mitra_withdraw(data, user)
+
+
 # Services endpoints
 @app.get("/api/services")
 def get_services(category: Optional[str] = None):
@@ -375,6 +458,10 @@ def get_mitra_dashboard(user: dict = Depends(require_role(["MITRA"]))):
         "is_online": user.get("mitra_profile", {}).get("is_online", False)
     }
 
+@app.post("/api/mitra/withdraw")
+def mitra_withdraw(data: MitraWithdraw, user: dict = Depends(require_role(["MITRA"]))):
+    return _execute_mitra_withdraw(data, user)
+
 @app.get("/api/mitra/{mitra_id}")
 def get_mitra(mitra_id: str):
     mitra = users_collection.find_one({"_id": ObjectId(mitra_id), "role": "MITRA"}, {"password": 0})
@@ -384,9 +471,13 @@ def get_mitra(mitra_id: str):
 
 @app.put("/api/mitra/profile")
 def update_mitra_profile(data: MitraProfile, user: dict = Depends(require_role(["MITRA"]))):
+    current = user.get("mitra_profile") or {}
+    merged = {**current, **data.dict()}
+    # Verification status is admin-only; never take it from the client payload.
+    merged["is_verified"] = current.get("is_verified", False)
     users_collection.update_one(
         {"_id": ObjectId(user["id"])},
-        {"$set": {"mitra_profile": data.dict(), "updated_at": datetime.now(timezone.utc).isoformat()}}
+        {"$set": {"mitra_profile": merged, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     return {"message": "Mitra profile updated"}
 
@@ -411,7 +502,26 @@ def create_order(data: OrderCreate, user: dict = Depends(require_role(["USER"]))
     service = services_collection.find_one({"_id": ObjectId(data.service_id)})
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
-    
+
+    category = service.get("category")
+    mitra_services = (mitra.get("mitra_profile") or {}).get("services") or []
+    if category and category not in mitra_services:
+        raise HTTPException(
+            status_code=400,
+            detail="Mitra ini tidak melayani kategori layanan yang dipilih",
+        )
+
+    total_amount = float(service.get("price", 0) or 0)
+    if total_amount <= 0:
+        raise HTTPException(status_code=400, detail="Harga layanan tidak valid")
+
+    user_id = user["id"]
+    wallets_collection.update_one(
+        {"user_id": user_id},
+        {"$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat(), "balance": 0}},
+        upsert=True,
+    )
+
     order_data = {
         "user_id": user["id"],
         "user_name": user["name"],
@@ -424,25 +534,44 @@ def create_order(data: OrderCreate, user: dict = Depends(require_role(["USER"]))
         "scheduled_time": data.scheduled_time,
         "address": data.address,
         "notes": data.notes,
-        "total_amount": service["price"],
+        "total_amount": total_amount,
         "status": OrderStatus.PENDING,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
-    
+
     result = orders_collection.insert_one(order_data)
     order_id = str(result.inserted_id)
-    
-    # Create escrow hold (Mock payment)
+
     escrow_collection.insert_one({
         "order_id": order_id,
         "user_id": user["id"],
         "mitra_id": data.mitra_id,
-        "amount": service["price"],
+        "amount": total_amount,
         "status": EscrowStatus.HOLD,
         "created_at": datetime.now(timezone.utc).isoformat()
     })
-    
+
+    debit = wallets_collection.update_one(
+        {"user_id": user_id, "balance": {"$gte": total_amount}},
+        {"$inc": {"balance": -total_amount}},
+    )
+    if debit.modified_count == 0:
+        escrow_collection.delete_one({"order_id": order_id})
+        orders_collection.delete_one({"_id": ObjectId(order_id)})
+        raise HTTPException(
+            status_code=400,
+            detail="Saldo wallet tidak mencukupi untuk melakukan pemesanan. Silakan top up terlebih dahulu.",
+        )
+
+    record_wallet_transaction(
+        user_id=user_id,
+        amount=total_amount,
+        tx_type="debit",
+        description=f"Pembayaran pesanan — {service['name']}",
+        order_id=order_id,
+    )
+
     return {"id": order_id, "message": "Order created", "status": "PENDING"}
 
 @app.get("/api/orders")
@@ -476,49 +605,94 @@ def update_order_status(order_id: str, status: str, user: dict = Depends(get_cur
     order = orders_collection.find_one({"_id": ObjectId(order_id)})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
-    valid_statuses = ["CONFIRMED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]
+
+    role = user["role"]
+    if role not in ("USER", "MITRA"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if role == "USER" and order["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if role == "MITRA" and order["mitra_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    valid_statuses = [
+        "CONFIRMED",
+        "IN_PROGRESS",
+        "AWAITING_USER_CONFIRMATION",
+        "COMPLETED",
+        "CANCELLED",
+    ]
     if status not in valid_statuses:
         raise HTTPException(status_code=400, detail="Invalid status")
-    
-    # Update order
+
+    current = order["status"]
+    if current == status:
+        return {"message": f"Order status is already {status}"}
+
+    if status == "CANCELLED":
+        if current != "PENDING":
+            raise HTTPException(
+                status_code=400,
+                detail="Pesanan hanya bisa dibatalkan saat menunggu konfirmasi mitra",
+            )
+    elif status == "CONFIRMED":
+        if role != "MITRA" or current != "PENDING":
+            raise HTTPException(
+                status_code=400,
+                detail="Hanya mitra yang dapat menerima pesanan saat menunggu",
+            )
+    elif status == "IN_PROGRESS":
+        if role != "MITRA" or current != "CONFIRMED":
+            raise HTTPException(
+                status_code=400,
+                detail="Hanya mitra yang dapat memulai pengerjaan setelah dikonfirmasi",
+            )
+    elif status == "AWAITING_USER_CONFIRMATION":
+        if role != "MITRA" or current != "IN_PROGRESS":
+            raise HTTPException(
+                status_code=400,
+                detail="Hanya mitra yang dapat menandai selesai saat pekerjaan berlangsung",
+            )
+    elif status == "COMPLETED":
+        if role != "USER" or current != "AWAITING_USER_CONFIRMATION":
+            raise HTTPException(
+                status_code=400,
+                detail="Hanya pengguna yang dapat mengonfirmasi setelah mitra menandai pekerjaan selesai",
+            )
+
     orders_collection.update_one(
         {"_id": ObjectId(order_id)},
-        {"$set": {"status": status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        {"$set": {"status": status, "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
-    
-    # Handle escrow
+
     if status == "COMPLETED":
-        # Release escrow to mitra
         escrow = escrow_collection.find_one({"order_id": order_id})
-        if escrow:
+        if escrow and escrow.get("status") == EscrowStatus.HOLD:
             escrow_collection.update_one(
                 {"order_id": order_id},
-                {"$set": {"status": EscrowStatus.RELEASED}}
+                {"$set": {"status": EscrowStatus.RELEASED}},
             )
-            # Add to mitra wallet (85% after 15% commission)
+            credit = escrow["amount"] * 0.85
             wallets_collection.update_one(
                 {"user_id": order["mitra_id"]},
-                {"$inc": {"balance": escrow["amount"] * 0.85}}
+                {"$inc": {"balance": credit}},
             )
             record_wallet_transaction(
                 user_id=order["mitra_id"],
-                amount=escrow["amount"] * 0.85,
+                amount=credit,
                 tx_type="credit",
                 description="Pencairan escrow pesanan selesai",
                 order_id=order_id,
             )
     elif status == "CANCELLED":
-        # Refund to user wallet
         escrow = escrow_collection.find_one({"order_id": order_id})
-        if escrow:
+        if escrow and escrow.get("status") == EscrowStatus.HOLD:
             escrow_collection.update_one(
                 {"order_id": order_id},
-                {"$set": {"status": EscrowStatus.REFUNDED}}
+                {"$set": {"status": EscrowStatus.REFUNDED}},
             )
             wallets_collection.update_one(
                 {"user_id": order["user_id"]},
-                {"$inc": {"balance": escrow["amount"]}}
+                {"$inc": {"balance": escrow["amount"]}},
             )
             record_wallet_transaction(
                 user_id=order["user_id"],
@@ -527,7 +701,7 @@ def update_order_status(order_id: str, status: str, user: dict = Depends(get_cur
                 description="Refund pesanan dibatalkan",
                 order_id=order_id,
             )
-    
+
     return {"message": f"Order status updated to {status}"}
 
 # Review endpoints
@@ -578,7 +752,18 @@ def get_admin_dashboard(user: dict = Depends(require_role(["ADMIN"]))):
     active_mitras = users_collection.count_documents({"role": "MITRA", "mitra_profile.is_online": True})
     total_orders = orders_collection.count_documents({})
     completed_orders = orders_collection.count_documents({"status": "COMPLETED"})
-    pending_orders = orders_collection.count_documents({"status": {"$in": ["PENDING", "CONFIRMED", "IN_PROGRESS"]}})
+    pending_orders = orders_collection.count_documents(
+        {
+            "status": {
+                "$in": [
+                    "PENDING",
+                    "CONFIRMED",
+                    "IN_PROGRESS",
+                    "AWAITING_USER_CONFIRMATION",
+                ]
+            }
+        }
+    )
     
     # Calculate GMV
     all_orders = list(orders_collection.find({"status": "COMPLETED"}))
@@ -629,42 +814,104 @@ def get_notifications(user: dict = Depends(get_current_user)):
     notifications = list(notifications_collection.find({"user_id": user["id"]}).sort("created_at", -1).limit(20))
     return [serialize_doc(n) for n in notifications]
 
-# Seed data endpoint (for development)
+# Seed data endpoint (for development — idempotent upserts; safe to call multiple times)
 @app.post("/api/seed")
 def seed_data():
-    # Clear existing data
-    services_collection.delete_many({})
-    
-    # Seed services
     services = [
-        {"name": "Bersih Rumah", "category": "cleaning", "description": "Jasa pembersihan rumah lengkap", "price": 150000, "duration_minutes": 120, "image_url": "https://images.pexels.com/photos/9462233/pexels-photo-9462233.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940", "is_active": True},
-        {"name": "Service AC", "category": "ac", "description": "Service & cuci AC split/cassette", "price": 100000, "duration_minutes": 60, "image_url": "https://images.pexels.com/photos/5463581/pexels-photo-5463581.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940", "is_active": True},
-        {"name": "Perbaikan Pipa", "category": "plumbing", "description": "Perbaikan pipa bocor, WC mampet", "price": 200000, "duration_minutes": 90, "image_url": "https://images.pexels.com/photos/8486978/pexels-photo-8486978.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940", "is_active": True},
-        {"name": "Instalasi Listrik", "category": "electrical", "description": "Pemasangan & perbaikan instalasi listrik", "price": 250000, "duration_minutes": 120, "image_url": "", "is_active": True},
-        {"name": "Jasa Pindahan", "category": "moving", "description": "Pindahan rumah & angkut barang", "price": 500000, "duration_minutes": 240, "image_url": "", "is_active": True},
-        {"name": "Pengecatan", "category": "renovation", "description": "Jasa cat dinding interior/eksterior", "price": 350000, "duration_minutes": 180, "image_url": "", "is_active": True}
-    ]
-    
-    for s in services:
-        s["created_at"] = datetime.now(timezone.utc).isoformat()
-        services_collection.insert_one(s)
-    
-    # Check if admin exists
-    if not users_collection.find_one({"email": "admin@suruahai.com"}):
-        admin_data = {
-            "email": "admin@suruahai.com",
-            "password": hash_password("admin123"),
-            "name": "Admin SuruAhai",
-            "phone": "08123456789",
-            "role": "ADMIN",
+        {
+            "catalog_key": "demo:cleaning:bersih_rumah",
+            "name": "Bersih Rumah",
+            "category": "cleaning",
+            "description": "Jasa pembersihan rumah lengkap",
+            "price": 150000,
+            "duration_minutes": 120,
+            "image_url": "https://images.pexels.com/photos/9462233/pexels-photo-9462233.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
             "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }
-        users_collection.insert_one(admin_data)
-    
+        },
+        {
+            "catalog_key": "demo:ac:service_ac",
+            "name": "Service AC",
+            "category": "ac",
+            "description": "Service & cuci AC split/cassette",
+            "price": 100000,
+            "duration_minutes": 60,
+            "image_url": "https://images.pexels.com/photos/5463581/pexels-photo-5463581.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "is_active": True,
+        },
+        {
+            "catalog_key": "demo:plumbing:pipa",
+            "name": "Perbaikan Pipa",
+            "category": "plumbing",
+            "description": "Perbaikan pipa bocor, WC mampet",
+            "price": 200000,
+            "duration_minutes": 90,
+            "image_url": "https://images.pexels.com/photos/8486978/pexels-photo-8486978.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "is_active": True,
+        },
+        {
+            "catalog_key": "demo:electrical:listrik",
+            "name": "Instalasi Listrik",
+            "category": "electrical",
+            "description": "Pemasangan & perbaikan instalasi listrik",
+            "price": 250000,
+            "duration_minutes": 120,
+            "image_url": "",
+            "is_active": True,
+        },
+        {
+            "catalog_key": "demo:moving:pindahan",
+            "name": "Jasa Pindahan",
+            "category": "moving",
+            "description": "Pindahan rumah & angkut barang",
+            "price": 500000,
+            "duration_minutes": 240,
+            "image_url": "",
+            "is_active": True,
+        },
+        {
+            "catalog_key": "demo:renovation:cat",
+            "name": "Pengecatan",
+            "category": "renovation",
+            "description": "Jasa cat dinding interior/eksterior",
+            "price": 350000,
+            "duration_minutes": 180,
+            "image_url": "",
+            "is_active": True,
+        },
+    ]
+
+    now = datetime.now(timezone.utc).isoformat()
+    with _seed_lock:
+        for svc in services:
+            catalog_key = svc["catalog_key"]
+            set_payload = {
+                **svc,
+                "is_active": True,
+                "updated_at": now,
+            }
+            services_collection.update_one(
+                {"catalog_key": catalog_key},
+                {"$set": set_payload, "$setOnInsert": {"created_at": now}},
+                upsert=True,
+            )
+
+        if not users_collection.find_one({"email": "admin@suruahai.com"}):
+            admin_data = {
+                "email": "admin@suruahai.com",
+                "password": hash_password("admin123"),
+                "name": "Admin SuruAhai",
+                "phone": "08123456789",
+                "role": "ADMIN",
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            users_collection.insert_one(admin_data)
+
     return {"message": "Seed data created successfully"}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+
+    # String import enables --reload-style auto-reload on file changes (dev).
+    uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=True)
