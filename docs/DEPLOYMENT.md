@@ -40,7 +40,7 @@ Panduan lengkap untuk deploy SuruAhai ke production menggunakan:
 #### Create Database User
 1. Go to **Security** → **Database Access**
 2. Click **"+ Add New Database User"**
-3. Username: `suruahai_user`
+3. Username: `Kenji`
 4. Password: Generate secure password (min 12 chars, special chars)
 5. Built-in Role: `Read and write to any database`
 6. Click **"Add User"**
@@ -66,10 +66,10 @@ Panduan lengkap untuk deploy SuruAhai ke production menggunakan:
 
 Format:
 ```
-mongodb+srv://suruahai_user:PASSWORD@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
+mongodb+srv://Kenji:YOUR_PASSWORD@cluster0.fup5i4a.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
 ```
 
-Replace `PASSWORD` dengan password user yang dibuat tadi.
+Replace `YOUR_PASSWORD` dengan password user yang dibuat tadi.
 
 ### Step 5: Create Database
 
@@ -108,7 +108,7 @@ Buat file `.env` di root Replit:
 
 ```env
 # MongoDB
-MONGO_URL=mongodb+srv://suruahai_user:YOUR_PASSWORD@cluster0.xxxxx.mongodb.net/suruahai?retryWrites=true&w=majority
+MONGO_URL=mongodb+srv://Kenji:YOUR_PASSWORD@cluster0.fup5i4a.mongodb.net/suruahai?retryWrites=true&w=majority&appName=Cluster0
 DB_NAME=suruahai
 
 # JWT
