@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://suruahai.vercel.app">Live Demo</a> •
+  <a href="https://suru-ahai-motp.vercel.app/">Live Demo</a> •
   <a href="https://github.com/FireClow/SuruAhai">GitHub</a>
 </p>
 
@@ -359,19 +359,60 @@ Detail lebih lanjut: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) dan [`docs/BAC
 
 ---
 
-## 📸 Screenshots
+## 📸 Screenshots & Mockups
+ 
+### 🎨 UI Components
+  
+#### Authentication
+Register page
+![Register Page](./docs/screenshots/auth/Register_page.png)
+Login page
+![Login Page](./docs/screenshots/auth/Login_page.png)
 
-Contoh screenshot ada di `docs/screenshots/`:
+#### User Dashboard
+Home / Browse services
+![Home](./docs/screenshots/user/home_page.png)
+Create booking
+![booking](./docs/screenshots/user/create_booking.png)
+Order confirmation
+![order](./docs/screenshots/user/order_confirmation.png)
+Choosing mitra
+![choose](./docs/screenshots/user/choose_mitra.png)
+Chat and price negotiation
+![chat](./docs/screenshots/user/chat_mitra.png)
+Order history
+![order_history](./docs/screenshots/user/order_history.png)
+Wallet & transactions
+![wallett](./docs/screenshots/user/wallet.png)
+Notifications
+![notif1](./docs/screenshots/user/notif.png)
 
-```text
-docs/screenshots/
-├── auth/       # Login & Register
-├── user/       # Dashboard & booking
-├── mitra/      # Profil jasa & dashboard
-└── admin/      # Verifikasi & monitoring
-```
+#### Mitra Dashboard
+Dashboard stats
+![mitra dashboard](./docs/screenshots/mitra/dashboard.png)
+Incoming orders
+![incoming_order](./docs/screenshots/mitra/incoming_order.png)
+Earnings
+![earn](./docs/screenshots/mitra/earning.png)
+Wallet
+![wallet](./docs/screenshots/mitra/wallet.png)
+Profile & verification
+![profile](./docs/screenshots/mitra/profile.png)
+Notifications
+![notif2](./docs/screenshots/mitra/notif.png)
 
----
+#### Admin Dashboard
+Overview stats
+![stats](./docs/screenshots/admin/dashboard.png)
+User management
+![userss](./docs/screenshots/admin/user_management.png)
+Mitra verification
+![mitraa](./docs/screenshots/admin/mitra_management.png)
+Money management
+![money](./docs/screenshots/admin/money.png)
+Transaction monitoring
+![transaction](./docs/screenshots/admin/transaction.png)
+
 
 ## 🚦 Status Development
 
@@ -395,6 +436,10 @@ docs/screenshots/
 
 ---
 
+## 📚 Additional Documentation
+- [`BACKEND_Run.md`](./docs/BACKEND_Run.md) - Detailed backend setup
+- [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) - Deployment guide
+  
 ## 👥 Tim
 
 | Nama | NIM |
