@@ -192,7 +192,7 @@ cd python-backend && python server.py
 Environment variables tidak loaded. Set manually:
 
 ```bash
-export MONGO_URL="mongodb+srv://suruahai_user:GyLfUImHfSFNv9N6@cluster0.64vkecl.mongodb.net/suruahai?retryWrites=true&w=majority&appName=Cluster0"
+export MONGO_URL="mongodb+srv://Kenji:YOUR_PASSWORD@cluster0.fup5i4a.mongodb.net/suruahai?retryWrites=true&w=majority&appName=Cluster0"
 export DB_NAME="suruahai"
 export JWT_SECRET="super-secret-key-change-this"
 export JWT_ALGORITHM="HS256"
